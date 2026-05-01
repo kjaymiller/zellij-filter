@@ -1,14 +1,42 @@
 #!/usr/bin/env bash
-# Fuzzy-pick a zoxide directory and open it in a zellij session
+# Fuzzy-pick an existing zellij session or a zoxide directory
 
-dir="$(zoxide query -l | gum filter --placeholder 'Pick a project...')"
+raw_target=$({
+  # Cyan for active sessions
+  zellij list-sessions -sn 2>/dev/null | awk '{printf "\033[36m%s\033[0m\n", $0}'
+  # Blue for tracked directories
+  zoxide query -l | awk '{printf "\033[34m%s\033[0m\n", $0}'
+} | awk '!seen[$0]++' | gum filter --no-strip-ansi --placeholder 'Pick a session or project...')
 
 # Exit if nothing was selected (user pressed Esc)
-if [ -z "$dir" ]; then
+if [ -z "$raw_target" ]; then
   exit 0
 fi
 
-session_name="$(basename "$dir")"
+# Strip ANSI codes from the selection
+target=$(echo "$raw_target" | awk '{gsub(/\033\[[0-9;]*m/, ""); print}')
 
-# Attach to existing session or create a new one in the target directory
-zellij attach -c "$session_name" options --default-cwd "$dir"
+# Check if target is an existing session
+if zellij list-sessions -sn 2>/dev/null | grep -Fxq "$target"; then
+  if [[ -n "$ZELLIJ" ]]; then
+    zellij pipe --plugin "https://github.com/mostafaqanbaryan/zellij-switch/releases/download/0.2.1/zellij-switch.wasm" -- "--session \"$target\""
+  else
+    zellij attach "$target"
+  fi
+elif [ -d "$target" ]; then
+  session_name="$(basename "$target")"
+  if [[ -n "$ZELLIJ" ]]; then
+    target_abs="$(cd "$target" && pwd)"
+    
+    # Bypass the zellij-switch plugin's flawed cwd handling by explicitly 
+    # creating the session in the background from the correct directory first.
+    (cd "$target_abs" && zellij attach -c "$session_name" -b)
+
+    zellij pipe --plugin "https://github.com/mostafaqanbaryan/zellij-switch/releases/download/0.2.1/zellij-switch.wasm" -- "--session \"$session_name\""
+  else
+    zellij attach -c "$session_name" options --default-cwd "$target"
+  fi
+else
+  echo "Error: '$target' is neither an active session nor a valid directory."
+  exit 1
+fi

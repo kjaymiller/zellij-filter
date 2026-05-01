@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Fuzzy-pick a zoxide directory and open it in a zellij session
+
+dir="$(zoxide query -l | gum filter --placeholder 'Pick a project...')"
+
+# Exit if nothing was selected (user pressed Esc)
+if [ -z "$dir" ]; then
+  exit 0
+fi
+
+session_name="$(basename "$dir")"
+
+# Attach to existing session or create a new one in the target directory
+zellij attach -c "$session_name" options --default-cwd "$dir"
